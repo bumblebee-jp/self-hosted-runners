@@ -1,0 +1,9 @@
+name: run self hosted runner example
+on:
+  workflow_dispatch:
+
+jobs:
+  codebuild:
+    runs-on: [self-hosted, '${{ github.run_id }}', 'arm']
+    steps:
+      - run: echo runs successfully
