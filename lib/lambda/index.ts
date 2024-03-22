@@ -10,17 +10,23 @@ export const handler = async (
 
     // expect queued event
     if (body?.action !== "queued") {
-        return response_from(200, `Skip because it is not a \`queued\` event: ${runId}`)
+        const message = `Skip because it is not a \`queued\` event: ${runId}`;
+        console.log(message)
+        return response_from(200, message)
     }
 
     // expect self-hosted label
     if (!labels.includes("self-hosted")) {
-        return response_from(200, `Skip because it is not a \`self-hosted\` event: ${runId}`)
+        const message = `Skip because it is not a \`self-hosted\` event: ${runId}`;
+        console.log(message)
+        return response_from(200, message)
     }
 
     // expect arm label
     if (!labels.includes("arm")) {
-        return response_from(200, `Skip because it is not a \`arm\` architecture: ${runId}`)
+        const message = `Skip because it is not a \`arm\` architecture: ${runId}`;
+        console.log(message)
+        return response_from(200, message)
     }
 
     // ToDo: verify token
@@ -30,7 +36,8 @@ export const handler = async (
     try {
         return await runs_on_code_build(htmlUrl, labels)
     } catch (err: any) {
-        return response_from(500, `Failed to start: ${err.message}`)
+        console.error(err?.message);
+        return response_from(500, `Failed to start: ${err?.message}`)
     }
 };
 
@@ -38,7 +45,7 @@ import {CodeBuildClient, StartBuildCommand, StartBuildCommandInput} from "@aws-s
 
 // CodeBuildでself-hosted runnersを開始する
 const runs_on_code_build = async (htmlUrl: string, labels: string[]) => {
-    const client = new CodeBuildClient({ region: "REGION" });
+    const client = new CodeBuildClient({ region: "ap-northeast-1" });
     const buildParams: StartBuildCommandInput = {
         projectName: 'GitHubSelfHostedRunners',
         environmentVariablesOverride: [

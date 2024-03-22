@@ -38,7 +38,7 @@ export class GitHubWebhookStack extends cdk.Stack {
     });
 
     const webhook = new nodejs.NodejsFunction(this, 'Webhook', {
-      entry: 'lambda/index.ts',
+      entry: 'lib/lambda/index.ts',
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(15),
     });
