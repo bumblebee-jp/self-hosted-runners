@@ -5,11 +5,18 @@ import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as api from 'aws-cdk-lib/aws-apigateway';
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
+import * as ecr from "aws-cdk-lib/aws-ecr";
 
 export class GitHubWebhookStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    const repository = new ecr.Repository(this, 'ghcr.io/actions/actions-runner', {
+      repositoryName: 'ghcr.io/actions/actions-runner',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    // ToDo: use CfnProject for ARM
     const project = new codebuild.Project(this, `SelfHostedRunnerCodeBuild`, {
       projectName: `GitHubSelfHostedRunners`,
       buildSpec: codebuild.BuildSpec.fromObject({
@@ -17,16 +24,14 @@ export class GitHubWebhookStack extends cdk.Stack {
         phases: {
           build: {
             commands: [
-              'nohup dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay2 &',
-              'timeout 15s sh -c "until docker info > /dev/null 2>&1; do echo .; sleep 1; done"',
-              'cd /actions-runner',
-              '/entrypoint.sh ./bin/Runner.Listener run --startuptype service',
+              'run.sh --jitconfig $ENCODED_JIT_CONFIG'
             ],
           },
         },
       }),
       environment: {
-        buildImage: codebuild.LinuxBuildImage.fromDockerRegistry('myoung34/github-runner:latest'),
+        buildImage: codebuild.LinuxBuildImage.fromEcrRepository(repository),
+        computeType: codebuild.ComputeType.MEDIUM,
         privileged: true,
         environmentVariables: {
           ACCESS_TOKEN: {
