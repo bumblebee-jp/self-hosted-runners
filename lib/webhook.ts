@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -16,7 +17,7 @@ export class GitHubWebhookStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 
-    // ToDo: use CfnProject for ARM
+    // ToDo: consider to use CfnProject for arm
     const project = new codebuild.Project(this, `SelfHostedRunnerCodeBuild`, {
       projectName: `GitHubSelfHostedRunners`,
       buildSpec: codebuild.BuildSpec.fromObject({
@@ -30,8 +31,8 @@ export class GitHubWebhookStack extends cdk.Stack {
         },
       }),
       environment: {
-        buildImage: codebuild.LinuxBuildImage.fromEcrRepository(repository),
-        computeType: codebuild.ComputeType.MEDIUM,
+        buildImage: codebuild.LinuxArmBuildImage.fromEcrRepository(repository),
+        computeType: codebuild.ComputeType.SMALL,
         privileged: true,
         environmentVariables: {
           ACCESS_TOKEN: {
@@ -42,10 +43,17 @@ export class GitHubWebhookStack extends cdk.Stack {
       },
     });
 
+    const token = ssm.StringParameter.fromStringParameterAttributes(this, 'GitHubTokenFromSSM', {
+      parameterName: '/GitHub/PersonalAccessToken/SelfHostedRunners',
+    });
+
     const webhook = new nodejs.NodejsFunction(this, 'Webhook', {
       entry: 'lib/lambda/index.ts',
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(15),
+      environment: {
+        GITHUB_TOKEN: token.stringValue,
+      }
     });
 
     // ToDo: least privilege

@@ -5,10 +5,11 @@ export const handler = async (
 ): Promise<APIGatewayProxyResult> => {
     const body = JSON.parse(event.body ?? "{}");
     const workflowJob = body?.workflow_job ?? {};
-    const repositoryName = body?.repository.full_name ?? "";
-    const jobId = workflowJob?.id;
+    const repo = body?.repository.name ?? "";
+    const owner = body?.repository.owner.login ?? "";
     const labels: string[] = workflowJob?.labels ?? [];
     const runId: string = workflowJob?.run_id ?? "undefined_run_id";
+    console.log(workflowJob)
 
     // expect queued event
     if (body?.action !== "queued") {
@@ -25,85 +26,62 @@ export const handler = async (
     }
 
     // expect arm label
-    // if (!labels.includes("arm")) {
-    //     const message = `Skip because it is not a \`arm\` architecture: ${runId}`;
-    //     console.log(message)
-    //     return response_from(200, message)
-    // }
+    if (!labels.includes("arm")) {
+        const message = `Skip because it is not a \`arm\` architecture: ${runId}`;
+        console.log(message)
+        return response_from(200, message)
+    }
 
     // ToDo: verify token
     // cf. https://qiita.com/bigmac/items/6e7decbfb734ba1551bd
 
-    const jitconfig = await generateJitConfig(
-      repositoryName,
-      labels,
-      jobId
-    )
-
     try {
-        return await runs_on_code_build(jitconfig)
+        const jitConfig = await generateJitConfig(
+          owner,
+          repo,
+          labels,
+          runId
+        )
+        return await runs_on_code_build(jitConfig)
     } catch (err: any) {
         console.error(err?.message);
         return response_from(500, `Failed to start: ${err?.message}`)
     }
 };
 
-import {CodeBuildClient, StartBuildCommand, StartBuildCommandInput} from "@aws-sdk/client-codebuild";
-import * as https from "https";
+import { CodeBuildClient, StartBuildCommand } from "@aws-sdk/client-codebuild";
+import { Octokit } from "@octokit/core";
 
-const generateJitConfig = async (repositoryFullName: string, labels: string[], id: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const request = https.request({
-              method: "POST",
-              host: 'api.github.com',
-              port: "443",
-              headers: {
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-                  "Authorization": `Bearer ${process.env["GITHUB_TOKEN"]}`,
-                  "User-Agent": "awslambda"
-              },
-              path: `/repos/${repositoryFullName}/actions/runners/generate-jitconfig`,
-          }, (response) => {
-              let data = '';
+const generateJitConfig = async (owner: string, repo: string, labels: string[], runId: string): Promise<string> => {
+    const auth = process.env.GITHUB_TOKEN ?? ''
+    if (!auth) {
+        new Error("GITHUB_TOKEN is not provided.")
+    }
 
-              response.on('data', (chunk) => {
-                  data += chunk;
-              });
-              response.on('end', () => {
-                  try {
-                      resolve(JSON.parse(data));
-                  } catch (err) {
-                      let message
-                      if (err instanceof Error) message = err.message
-                      else message = String(err)
-                      reject(new Error(message));
-                  }
-              });
-          }
-        );
-        request.on('error', err => {
-            reject(new Error(err.message));
-        });
-        request.write(JSON.stringify({
-            "name": `CodeBuild-${id}`,
-            "runner_group_id": 1,
-            "labels": labels,
-            "work_folder": "work"
-        }));
-        request.end();
-    })
+    const octokit = new Octokit({ auth })
+    const response = await octokit.request(`POST /repos/${owner}/${repo}/actions/runners/generate-jitconfig`, {
+        owner: owner,
+        repo: repo,
+        name: `${runId}`,
+        runner_group_id: 1,
+        labels: labels,
+        work_folder: '_work',
+        headers: {
+            'X-GitHub-Api-Version': '2022-11-28'
+        }
+    });
+    return response.data.encoded_jit_config
 }
 
 // CodeBuild で self-hosted runner を起動する
-const runs_on_code_build = async (jitconfig: string) => {
+const runs_on_code_build = async (jitConfig: string) => {
     const client = new CodeBuildClient({ region: "ap-northeast-1" });
     const response = await client.send(new StartBuildCommand({
         projectName: 'GitHubSelfHostedRunners',
         environmentVariablesOverride: [
             {
                 name: 'ENCODED_JIT_CONFIG',
-                value: jitconfig,
+                value: jitConfig,
                 type: 'PLAINTEXT',
             },
         ],
